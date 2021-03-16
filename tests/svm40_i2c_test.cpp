@@ -45,39 +45,39 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-// TODO: DRIVER_GENERATOR Remove commands which shouldn't be tested
-// TODO: DRIVER_GENERATOR Adjust setup and teardown
-// TODO: DRIVER_GENERATOR Adjust all tests such that pre- and post conditions
-// are meet
+#define MAX_VOC_INDEX 5000
+#define MIN_VOC_INDEX 0
+#define MAX_VOC_RAW 65535
+#define MAX_RH_RAW (119 * 100)
+#define MIN_RH_RAW (-6 * 100)
+#define MAX_T (130 * 200)
+#define MIN_T (-45 * 200)
 
 TEST_GROUP (SVM40_Tests) {
     void setup() {
+        int16_t error;
         sensirion_i2c_hal_init();
 
-        // Select MUX 1 channel 1 (TODO: DRIVER_GENERATOR choose correct mux
-        // position)
-        int16_t error = sensirion_i2c_mux_set_single_channel(0x71, 1);
-        CHECK_EQUAL_ZERO_TEXT(error, "sensirion_i2c_mux_set_single_channel")
+        // Select MUX 2 channel 7 (SVM40) on ch-sta-p-rp0002
+        error = sensirion_i2c_mux_set_single_channel(0x72, 7);
+        CHECK_EQUAL_ZERO_TEXT(error, "sensirion_i2c_mux_set_single_channel");
     }
 
     void teardown() {
-
         int16_t error;
+        svm40_stop_measurement();
         error = svm40_device_reset();
         CHECK_EQUAL_ZERO_TEXT(error, "svm40_device_reset");
-
         sensirion_i2c_hal_free();
     }
 };
 
-TEST (SVM40_Tests, SVM40_Test_start_continuous_measurement) {
+TEST (SVM40_Tests, SVM40_Test_start_and_stop_measurement) {
     int16_t error;
+
     error = svm40_start_continuous_measurement();
     CHECK_EQUAL_ZERO_TEXT(error, "svm40_start_continuous_measurement");
-}
 
-TEST (SVM40_Tests, SVM40_Test_stop_measurement) {
-    int16_t error;
     error = svm40_stop_measurement();
     CHECK_EQUAL_ZERO_TEXT(error, "svm40_stop_measurement");
 }
@@ -87,12 +87,26 @@ TEST (SVM40_Tests, SVM40_Test_read_measured_values_as_integers) {
     int16_t voc_index;
     int16_t humidity;
     int16_t temperature;
+
+    error = svm40_start_continuous_measurement();
+    CHECK_EQUAL_ZERO_TEXT(error, "svm40_start_continuous_measurement");
+
     error = svm40_read_measured_values_as_integers(&voc_index, &humidity,
                                                    &temperature);
     CHECK_EQUAL_ZERO_TEXT(error, "svm40_read_measured_values_as_integers");
     printf("Voc index: %i\n", voc_index);
     printf("Humidity: %i\n", humidity);
     printf("Temperature: %i\n", temperature);
+
+    CHECK_TRUE_TEXT(voc_index >= MIN_VOC_INDEX && voc_index <= MAX_VOC_INDEX,
+                    "svm40_read_measured_values_as_integers");
+    CHECK_TRUE_TEXT(humidity >= MIN_RH_RAW && humidity <= MAX_RH_RAW,
+                    "svm40_read_measured_values_as_integers");
+    CHECK_TRUE_TEXT(temperature >= MIN_T && temperature <= MAX_T,
+                    "svm40_read_measured_values_as_integers");
+
+    error = svm40_stop_measurement();
+    CHECK_EQUAL_ZERO_TEXT(error, "svm40_stop_measurement");
 }
 
 TEST (SVM40_Tests,
@@ -104,6 +118,10 @@ TEST (SVM40_Tests,
     uint16_t raw_voc_ticks;
     int16_t raw_humidity;
     int16_t raw_temperature;
+
+    error = svm40_start_continuous_measurement();
+    CHECK_EQUAL_ZERO_TEXT(error, "svm40_start_continuous_measurement");
+
     error = svm40_read_measured_values_as_integers_with_raw_parameters(
         &voc_index, &humidity, &temperature, &raw_voc_ticks, &raw_humidity,
         &raw_temperature);
@@ -115,31 +133,48 @@ TEST (SVM40_Tests,
     printf("Raw voc ticks: %u\n", raw_voc_ticks);
     printf("Raw humidity: %i\n", raw_humidity);
     printf("Raw temperature: %i\n", raw_temperature);
+
+    CHECK_TRUE_TEXT(voc_index >= MIN_VOC_INDEX && voc_index <= MAX_VOC_INDEX,
+                    "svm40_read_measured_values_as_integers");
+    CHECK_TRUE_TEXT(humidity >= MIN_RH_RAW && humidity <= MAX_RH_RAW,
+                    "svm40_read_measured_values_as_integers_with_raw_params");
+    CHECK_TRUE_TEXT(temperature >= MIN_T && temperature <= MAX_T,
+                    "svm40_read_measured_values_as_integers_with_raw_params");
+    CHECK_TRUE_TEXT(raw_humidity >= MIN_RH_RAW && raw_humidity <= MAX_RH_RAW,
+                    "svm40_read_measured_values_as_integers_with_raw_params");
+    CHECK_TRUE_TEXT(raw_temperature >= MIN_T && raw_temperature <= MAX_T,
+                    "svm40_read_measured_values_as_integers_with_raw_params");
+    CHECK_TRUE_TEXT(raw_voc_ticks <= MAX_VOC_RAW,
+                    "svm40_read_measured_values_as_integers_with_raw_params");
+
+    error = svm40_stop_measurement();
+    CHECK_EQUAL_ZERO_TEXT(error, "svm40_stop_measurement");
 }
 
-TEST (SVM40_Tests, SVM40_Test_set_temperature_offset_for_rht_measurements) {
+TEST (SVM40_Tests, SVM40_Test_temperature_offset_for_rht_measurements) {
     int16_t error;
-    int16_t t_offset = 0;
-    error = svm40_set_temperature_offset_for_rht_measurements(t_offset);
+    int16_t expected_offset = 420;
+    int16_t t_offset;
+
+    error = svm40_set_temperature_offset_for_rht_measurements(expected_offset);
     CHECK_EQUAL_ZERO_TEXT(error,
                           "svm40_set_temperature_offset_for_rht_measurements");
-}
 
-TEST (SVM40_Tests, SVM40_Test_get_temperature_offset_for_rht_measurements) {
-    int16_t error;
-    int16_t t_offset;
     error = svm40_get_temperature_offset_for_rht_measurements(&t_offset);
     CHECK_EQUAL_ZERO_TEXT(error,
                           "svm40_get_temperature_offset_for_rht_measurements");
     printf("T offset: %i\n", t_offset);
+
+    CHECK_TRUE_TEXT(t_offset == expected_offset,
+                    "svm40_get_temperature_offset_for_rht_measurements");
 }
 
 TEST (SVM40_Tests, SVM40_Test_set_voc_algorithm_tuning_parameters) {
     int16_t error;
-    int16_t voc_index_offset = 0;
-    int16_t learning_time_hours = 0;
-    int16_t gating_max_duration_minutes = 0;
-    int16_t std_initial = 0;
+    int16_t voc_index_offset = 100;
+    int16_t learning_time_hours = 12;
+    int16_t gating_max_duration_minutes = 180;
+    int16_t std_initial = 50;
     error = svm40_set_voc_algorithm_tuning_parameters(
         voc_index_offset, learning_time_hours, gating_max_duration_minutes,
         std_initial);
@@ -170,23 +205,27 @@ TEST (SVM40_Tests, SVM40_Test_store_nv_data) {
 
 TEST (SVM40_Tests, SVM40_Test_set_voc_algorithm_state) {
     int16_t error;
-    uint8_t state[42];
-    uint8_t state_size = 42;
+    uint8_t state[8];
+    uint8_t state_size = 8;
     error = svm40_set_voc_algorithm_state(&state[0], state_size);
     CHECK_EQUAL_ZERO_TEXT(error, "svm40_set_voc_algorithm_state");
 }
 
 TEST (SVM40_Tests, SVM40_Test_get_voc_algorithm_state) {
     int16_t error;
-    uint8_t state[42];
-    uint8_t state_size = 42;
+    uint8_t state[8];
+    uint8_t state_size = 8;
     error = svm40_get_voc_algorithm_state(&state[0], state_size);
-    CHECK_EQUAL_ZERO_TEXT(error, "svm40_get_voc_algorithm_state");
-    printf("State: ");
-    for (size_t i = 0; i < state_size; i++) {
-        printf("%u, ", state[i]);
-    }
-    printf("\n");
+    CHECK_EQUAL_TEXT(0, error, "svm40_get_voc_algorithm_state");
+}
+
+TEST (SVM40_Tests, SVM40_Test_get_serial_number) {
+    int16_t error;
+    uint8_t serial_number[32];
+    uint8_t serial_number_size = 32;
+    error = svm40_get_serial_number(&serial_number[0], serial_number_size);
+    CHECK_EQUAL_ZERO_TEXT(error, "svm40_get_serial_number");
+    printf("serial_number: %s\n", serial_number);
 }
 
 TEST (SVM40_Tests, SVM40_Test_get_version) {
@@ -202,22 +241,13 @@ TEST (SVM40_Tests, SVM40_Test_get_version) {
                               &hardware_major, &hardware_minor, &protocol_major,
                               &protocol_minor);
     CHECK_EQUAL_ZERO_TEXT(error, "svm40_get_version");
-    printf("Firmware major: %u\n", firmware_major);
-    printf("Firmware minor: %u\n", firmware_minor);
-    printf("Firmware debug: %i\n", firmware_debug);
-    printf("Hardware major: %u\n", hardware_major);
-    printf("Hardware minor: %u\n", hardware_minor);
-    printf("Protocol major: %u\n", protocol_major);
-    printf("Protocol minor: %u\n", protocol_minor);
-}
-
-TEST (SVM40_Tests, SVM40_Test_get_serial_number) {
-    int16_t error;
-    unsigned char serial_number[42];
-    uint8_t serial_number_size = 42;
-    error = svm40_get_serial_number(&serial_number[0], serial_number_size);
-    CHECK_EQUAL_ZERO_TEXT(error, "svm40_get_serial_number");
-    printf("Serial number: %s\n", serial_number);
+    printf("firmware_major: %i\n", firmware_major);
+    printf("firmware_minor: %i\n", firmware_minor);
+    printf("firmware_debug: %i\n", firmware_debug);
+    printf("hardware_major: %i\n", hardware_major);
+    printf("hardware_minor: %i\n", hardware_minor);
+    printf("protocol_major: %i\n", protocol_major);
+    printf("protocol_minor: %i\n", protocol_minor);
 }
 
 TEST (SVM40_Tests, SVM40_Test_device_reset) {
